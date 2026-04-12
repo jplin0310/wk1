@@ -1,28 +1,16 @@
-import { Text, View, StyleSheet } from "react-native";
+import React, { useEffect } from 'react';
+import { useRouter } from 'expo-router';
 
-export default function Index() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>EXPO作業</Text>
-      <Text style={styles.text}>姓名：林哲平</Text>
-      <Text style={styles.text}>學號：111319023</Text>
-    </View>
-  );
+export default function HomeScreen() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.replace({ pathname: '/pet', params: { id: 1 } });
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [router]);
+
+  return null;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  text: {
-    fontSize: 20,
-  },
-});
