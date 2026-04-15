@@ -59,3 +59,10 @@ export const updatePet = async (petId, newData) => {
     await AsyncStorage.setItem('pets', JSON.stringify(pets));
   }
 };
+
+// 重置所有數據（用於測試）
+export const resetAllData = async () => {
+  await AsyncStorage.clear();
+  await initPets();
+  await initGlobalData();
+};

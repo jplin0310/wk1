@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, Pressable, Alert, Modal, FlatList } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, Image, ImageBackground, StyleSheet, Pressable, Alert, Modal, FlatList } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { initPets, getPets, updatePet, getGlobalData, updateGlobalData } from '../utils/storage';
 
 // 靜態資源定義，讓 bundler 能正確識別
+const backgroundImage = require('./assets/background/background.png');
 const catFoodImage = require('./assets/food/cat_food.png');
 const dogFoodImage = require('./assets/food/dog_food.png');
 const catPetImage = require('./assets/pets/cat.png');
@@ -11,9 +12,28 @@ const dogPetImage = require('./assets/pets/dog.png');
 const ballImage = require('./assets/game/ball.png');
 const frisbeeImage = require('./assets/game/frisbee.png');
 const yarnImage = require('./assets/game/yarn.png');
+const gameControllerIcon = require('./assets/game/game_controller.png');
 const switchIcon = require('./assets/icon/switch.png');
 const shopIcon = require('./assets/icon/shop_logo.png');
 const gameIcon = require('./assets/icon/game.png');
+const hungerHeartImages = [
+  require('./assets/heart/0.png'),
+  require('./assets/heart/0.5.png'),
+  require('./assets/heart/1.png'),
+  require('./assets/heart/1.5.png'),
+  require('./assets/heart/2.png'),
+  require('./assets/heart/2.5.png'),
+  require('./assets/heart/3.png'),
+  require('./assets/heart/3.5.png'),
+  require('./assets/heart/4.png'),
+  require('./assets/heart/4.5.png'),
+  require('./assets/heart/5.png'),
+];
+
+const getHungerHeartImage = (hunger) => {
+  const index = Math.min(10, Math.max(0, Math.round((100 - hunger) / 10)));
+  return hungerHeartImages[index];
+};
 
 export default function PetScreen() {
   const router = useRouter();
@@ -24,27 +44,28 @@ export default function PetScreen() {
   const [level, setLevel] = useState(1);
   const [allPets, setAllPets] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
-  const [foodModalVisible, setFoodModalVisible] = useState(false);
   const [toyModalVisible, setToyModalVisible] = useState(false);
-  const [selectedFood, setSelectedFood] = useState('貓飼料');
   const [selectedToy, setSelectedToy] = useState('球');
   const [globalData, setGlobalData] = useState(null);
-  const [availableFoods, setAvailableFoods] = useState([]);
 
   const [toys, setToys] = useState([]);
 
   const petId = Number(id || '1');
+  const mountedRef = useRef(true);
 
   // 🔥 載入該寵物資料，每次回到畫面時更新
   useFocusEffect(
     useCallback(() => {
+      mountedRef.current = true;
       const load = async () => {
         await initPets();
         const pets = await getPets();
+        if (!mountedRef.current) return;
         setAllPets(pets);
 
         const found = pets.find(p => p.id === petId);
         if (found) {
+          if (!mountedRef.current) return;
           setPet(found);
           setLevel(found.level || 1);
           setRewards(found.rewards || 0);
@@ -52,44 +73,42 @@ export default function PetScreen() {
           // 🔥 根據寵物類型設置可用飼料
           const petType = found.type;
           if (petType === 'dog') {
-            setAvailableFoods([{ name: '狗飼料', image: dogFoodImage }]);
-            setSelectedFood('狗飼料');
+            // dog uses dog food
           } else {
-            setAvailableFoods([{ name: '貓飼料', image: catFoodImage }]);
-            setSelectedFood('貓飼料');
+            // cat uses cat food
           }
         }
 
         // 🔥 獲取全局飼料計數和玩具列表
         const gData = await getGlobalData();
+        if (!mountedRef.current) return;
         setGlobalData(gData);
         setToys(gData.toys || []);
       };
       load();
+
+      return () => {
+        mountedRef.current = false;
+      };
     }, [petId])
   );
 
   const handlePetSelect = async (selectedPet) => {
+    if (!mountedRef.current) return;
     setModalVisible(false);
     setPet(selectedPet);
     setLevel(selectedPet.level || 1);
     setRewards(selectedPet.rewards || 0);
 
-    // 🔥 根據寵物類型設置可用飼料
-    const petType = selectedPet.type;
-    if (petType === 'dog') {
-      setAvailableFoods([{ name: '狗飼料', image: dogFoodImage }]);
-      setSelectedFood('狗飼料');
-    } else {
-      setAvailableFoods([{ name: '貓飼料', image: catFoodImage }]);
-      setSelectedFood('貓飼料');
-    }
+    // 🔥 重設選擇的玩具為預設的球（適合所有寵物）
+    setSelectedToy('球');
 
     router.replace({ pathname: '/pet', params: { id: selectedPet.id } });
   };
 
   // 🔥 經驗值系統
   const addRewards = async (amount) => {
+    if (!mountedRef.current) return;
     setRewards(prev => {
       let newRewards = prev + amount;
       const required = level * 100;
@@ -112,11 +131,11 @@ export default function PetScreen() {
 
   // 🍖 餵食
   const feedPet = async () => {
-    if (!globalData) return;
+    if (!pet || !globalData || !mountedRef.current) return;
 
     // 🔥 根據寵物類型檢查飼料
     const foodKey = pet.type === 'dog' ? 'dogFoodCount' : 'catFoodCount';
-    const currentFoodCount = globalData[foodKey];
+    const currentFoodCount = globalData[foodKey] || 0;
 
     if (currentFoodCount <= 0) {
       Alert.alert('飼料不足！');
@@ -138,12 +157,15 @@ export default function PetScreen() {
     setPet(updated);
     await updatePet(pet.id, updated);
     await updateGlobalData(newGlobalData);
-    setGlobalData(newGlobalData);
+    if (mountedRef.current) {
+      setGlobalData(newGlobalData);
+    }
     addRewards(10);
   };
 
   // 🎮 玩耍（會增加飢餓）
   const playWithPet = async () => {
+    if (!mountedRef.current) return;
     if (pet.hunger >= 100) {
       Alert.alert('太餓了！先餵食吧');
       return;
@@ -170,9 +192,12 @@ export default function PetScreen() {
   const currentFoodCount = globalData[foodKey] || 0;
   const currentFoodImage = pet.type === 'dog' ? dogFoodImage : catFoodImage;
   const currentPetImage = pet.type === 'dog' ? dogPetImage : catPetImage;
+  const hungerHeartImage = getHungerHeartImage(pet.hunger);
 
   return (
     <View style={styles.container}>
+
+
       {/* 左上角狀態 */}
       <View style={styles.statusContainer}>
         <View style={styles.statusItem}>
@@ -181,22 +206,6 @@ export default function PetScreen() {
             <View style={styles.expBarBackground}>
               <View style={[styles.expBarFill, { width: `${expPercent}%` }]} />
             </View>
-          </View>
-        </View>
-
-        <View style={styles.statusItem}>
-          <View style={styles.row}>
-            <Image 
-              source={currentFoodImage}
-              style={styles.icon}
-            />
-            <Text style={styles.statusLabel}>{currentFoodCount}</Text>
-          </View>
-        </View>
-
-        <View style={styles.statusItem}>
-          <View style={styles.row}>
-            <Text style={styles.statusLabel}>💰 {globalData.money}</Text>
           </View>
         </View>
 
@@ -224,40 +233,48 @@ export default function PetScreen() {
       </Pressable>
 
       {/* 寵物 */}
-      <View style={styles.petContainer}>
-        <Image source={currentPetImage} style={styles.petImage} />
-        <Text style={styles.petName}>{pet.name}</Text>
-      </View>
+      <ImageBackground pointerEvents="box-none" source={backgroundImage} style={styles.petContainer} imageStyle={styles.petBackgroundImage}>
+        <View style={styles.petContent} pointerEvents="box-none">
+          <View style={styles.hungerBar}>
+            <Image source={hungerHeartImage} style={styles.hungerHeart} />
+          </View>
+          <Image source={currentPetImage} style={styles.petImage} />
+          <Text style={styles.petName}>{pet.name}</Text>
+        </View>
+      </ImageBackground>
+      
+      <Pressable
+        style={styles.topLeftPlayButton}
+        onPress={playWithPet}
+      >
+        <Image
+          source={toys.find(t => t.name === selectedToy)?.image || ballImage}
+          style={styles.toy_switch_icon}
+        />
+      </Pressable>
 
       {/* 底部 */}
       <View style={styles.footer}>
         <View style={styles.buttonContainer}>
-          <View style={styles.actionRow}>
-            <Pressable style={styles.actionButton} onPress={feedPet}>
+          <View style={styles.food_actionRow}>
+              <Pressable style={styles.actionButton} onPress={feedPet}>
               <Image 
                 source={currentFoodImage}
-                style={styles.switch_icon}
+                style={styles.food_switch_icon}
               />
-            </Pressable>
-            <Pressable style={styles.arrowButton} onPress={() => setFoodModalVisible(true)}>
-              <Text style={styles.arrowText}>▶</Text>
+              <Text style={styles.foodCountLabel}>{currentFoodCount}</Text>
             </Pressable>
           </View>
 
-          <View style={styles.actionRow}>
-            <Pressable style={[styles.actionButton, (toys.length === 0 || !toys.find(t => t.name === selectedToy)) && styles.disabledButton]} onPress={(toys.length > 0 && toys.find(t => t.name === selectedToy)) ? playWithPet : null} disabled={toys.length === 0 || !toys.find(t => t.name === selectedToy)}>
+          <View style={styles.toy_actionRow}>
+            <Pressable style={styles.controllerButton} onPress={() => setToyModalVisible(true)}>
               <Image 
-                source={toys.find(t => t.name === selectedToy)?.image || ballImage}
-                style={styles.switch_icon}
+                source={gameControllerIcon}
+                style={styles.gameControllerIcon}
               />
-            </Pressable>
-            <Pressable style={styles.arrowButton} onPress={() => setToyModalVisible(true)}>
-              <Text style={styles.arrowText}>▶</Text>
             </Pressable>
           </View>
         </View>
-
-        <Text style={styles.statusLabel}>飢餓值: {pet.hunger}</Text>
       </View>
 
       <Modal visible={modalVisible} animationType="slide" transparent>
@@ -292,38 +309,6 @@ export default function PetScreen() {
         </View>
       </Modal>
 
-      <Modal visible={foodModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>選擇食物</Text>
-            <FlatList
-              data={availableFoods}
-              horizontal
-              keyExtractor={(item) => item.name}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={[
-                    styles.foodItem,
-                    selectedFood === item.name && styles.selectedFoodItem,
-                  ]}
-                  onPress={() => {
-                    setSelectedFood(item.name);
-                    setFoodModalVisible(false);
-                  }}
-                >
-                  <Image source={item.image} style={styles.foodImage} />
-                  <Text style={styles.foodName}>{item.name}</Text>
-                </Pressable>
-              )}
-              contentContainerStyle={styles.foodListContent}
-              showsHorizontalScrollIndicator={false}
-            />
-            <Pressable style={styles.closeButton} onPress={() => setFoodModalVisible(false)}>
-              <Text style={styles.closeButtonText}>取消</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
 
       <Modal visible={toyModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -381,7 +366,6 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#D0E7EF',
-    paddingTop: 10,
     flexDirection: 'column',
   },
   statusContainer: { 
@@ -452,9 +436,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 20,
   },
+  food_switch_icon: {
+    width: 110,
+    height: 110,
+    resizeMode: 'contain',
+  },
+  toy_switch_icon: {
+    width: 100,
+    height: 100,
+    resizeMode: 'contain',
+  },
   switch_icon: {
-    width: 30,
-    height: 30,
+    width: 20,
+    height: 20,
     resizeMode: 'contain',
   },
   shopButton: {
@@ -469,20 +463,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 120, // 給狀態欄留空間
-    paddingBottom: 120, // 給底部按鈕留空間
+    paddingTop: 100, // 給狀態欄留空間
+    paddingBottom: 100, // 給底部按鈕留空間
+  },
+  petContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  petBackgroundImage: {
+    resizeMode: 'cover',
   },
   petImage: {
-    width: 160,
-    height: 160,
-    borderRadius: 100,
-    marginBottom: 10,
+    width: 250,
+    height: 250,
     resizeMode: 'contain',
   },
   petName: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+    top: -10,
   },
   footer: {
     position: 'absolute',
@@ -492,7 +492,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 30,
     paddingTop: 10,
-    backgroundColor: '#D0E7EF',
   },
   rewardsBox: {
     backgroundColor: '#fff',
@@ -518,31 +517,78 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     gap: 10,
   },
-  actionRow: {
+  foodCountDisplay: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  foodCountLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: -25,
+  },
+  food_actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    top: -10,
+  },
+  toy_actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  topLeftPlayButton: {
+    position: 'absolute',
+    top: 350,
+    left: 20,
+    width: 100,
+    height: 100,
+    borderRadius: 46,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  controllerButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gameControllerIcon: {
+    width: 150,
+    height: 150,
+    resizeMode: 'contain',
+    left: 100,
   },
   actionButton: {
-    flex: 1,
-    backgroundColor: '#ffc38ad2',
-    padding: 15,
-    borderRadius: 10,
+    minWidth: 120,
+    maxWidth: 150,
     alignItems: 'center',
     justifyContent: 'center',
+    top: 20,
   },
   arrowButton: {
-    backgroundColor: '#ff9ff3',
-    paddingHorizontal: 12,
-    paddingVertical: 15,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  arrowText: {
-    fontSize: 18,
-    color: '#fff',
-    fontWeight: 'bold',
+  hungerBar: {
+    alignItems: 'center',
+    marginBottom: -90,
+    zIndex: 10,
+  },
+  hungerHeart: {
+    width: 600,
+    height: 180,
+    resizeMode: 'contain',
   },
   foodGrid: {
     flexDirection: 'row',
